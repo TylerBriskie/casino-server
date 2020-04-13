@@ -1,13 +1,31 @@
-var createError = require('http-errors');
-var express = require('express');
-var path = require('path');
-var cookieParser = require('cookie-parser');
-var logger = require('morgan');
+const createError = require('http-errors');
+const cors = require('cors');
+const cookieParser = require('cookie-parser');
+const bodyParser = require('body-parser');
+const mongoose = require('mongoose');
+const express = require('express');
+const path = require('path');
+const logger = require('morgan');
 
+require('dotenv').config();
+
+
+// ROUTES
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
 
+
+// MAKE APP
 var app = express();
+
+
+
+// MIDDLEWAREZ
+console.log("process.env", process.env);
+
+app.use(cors());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
@@ -36,6 +54,19 @@ app.use(function(err, req, res, next) {
   // render the error page
   res.status(err.status || 500);
   res.render('error');
+});
+
+// APP
+app.listen(process.env.PORT || 1337, () => {
+  mongoose.connect(process.env.DB_CONN_STRING, error => {
+    if (error){
+      console.error("error: " + error);
+    }
+    else {
+      console.log('connected to db');
+    }
+  })
+
 });
 
 module.exports = app;
