@@ -22,34 +22,60 @@ router.get('/', function(req, res, next) {
 
 
 /* USER LOGIN */
-router.post('/login', (req, res, next)=> {
+router.post(
+    '/login', 
+    [        
+        check('email', 'Email is Required').not().isEmpty(),
+        check('password', 'Password is Required')
+            .not()
+            .isEmpty(),
 
-    let userData = req.body;
-    console.log('looking up email - "'+userData.username + '"');
+    ],
+    (req, res, next)=> {
+
+        // VALIDATION
+        const errors = validationResult(req).array();
 
 
-    User.findOne({email: userData.username}, (err, user) => {
-        if (err){
-            console.log("error!  Code 72ne82n90w, error logging in: ", err)
+        // IF THERE ARE ERRORS, SEND THEM
+        if (errors.length > 0){
+            console.log('Error!');
+            res.status(500).send(errors);
+
+        // VALIDATION PASSED ...
         } else {
-            console.log(user);
-            if (!user){
-                res.status(401).send("Email Not Found");
-            } else {
-                bcrypt.compare(userData.password, user.password, (err, login) => {
-                    if (login){
-                        let payload = { subject: user._id};
-                        let token = jwt.sign(payload, process.env.JWT_SECRET);
-                        res.cookie('token', token);
-                        res.redirect('/form');
+
+            let userData = req.body;
+            console.log('looking up email - "'+userData.email + '"');
+
+
+            User.findOne({email: userData.email}, (err, user) => {
+                if (err){
+                    console.log("error!  Code 72ne82n90w, error logging in: ", err)
+                } else {
+                    console.log(user);
+                    if (!user){
+                        res.status(401).send("Email Not Found");
                     } else {
-                        res.status(403).send('password incorrect');
+                        bcrypt.compare(userData.password, user.password, (err, login) => {
+                            if (login){
+                                let payload = { 
+                                    user_id: user._id,
+                                    credits: user.credits
+                                };
+                                let token = jwt.sign(payload, process.env.JWT_SECRET);
+                                res.cookie('token', token);
+                                res.status(200).send(token);
+                            } else {
+                                res.status(403).send('password incorrect');
+                            }
+                        })
                     }
-                })
-            }
+                }
+            })
         }
-    })
-});
+    }
+);
 
 router.post('/signup',
     // VALIDATION / MIDDLEWARE
@@ -59,6 +85,9 @@ router.post('/signup',
             .not()
             .isEmpty()
             .withMessage('Display Name is required'),
+        check('display_name')
+            .matches(/^[a-z0-9\s]+$/i)
+            .withMessage('Display Name must use no special characters'),
         check('password', 'Password is requried')
             .isLength({ min: 6 })
             .custom((val, { req, loc, path }) => {
@@ -124,7 +153,7 @@ router.post('/signup',
     
                     } else {
                         console.log('A user with email address ' + user.email + ' already exists');
-                        res.send('A user with email address ' + user.email + ' already exists');
+                        res.status(409).send('A user with email address ' + user.email + ' already exists');
                     }
     
     
