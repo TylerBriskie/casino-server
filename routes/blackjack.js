@@ -9,6 +9,16 @@ const axios = require('axios');
 const User = require('../models/User');
 
 
+
+// GAME PHASES
+
+const NO_GAME = 'NO_GAME';
+const PLACE_YOUR_BETS = "PLACE_YOUR_BETS";
+const PLAYER_TURN = "PLAYER_TURN";
+const DEALER_TURN = "DEALER_TURN";
+const PAYOUT = "PAYOUT";
+
+// LOCAL "STATE"
 let dealer = {
     hasBlackjack: false,
     cards: [],
@@ -27,6 +37,7 @@ let player = {
     seat: 1
 }
 
+let gamePhase = "NO_GAME"
 let deckId;
 let deckCount = 6;
 let unshuffledDeck = [];
@@ -44,19 +55,42 @@ const NEW_UNSHUFFLED_PACK = [
 
 
 
-router.post('/newHand', (req, res, next) =>{
-    // CLEAR PLAYER AND DEALER HANDS
-
-
+router.post('/newHand', async (req, res, next) =>{
     console.log(req.body);
-    player = {
-        name: req.body.player.name,
-        hasBlackjack: false,
-        cards: [],
-        value: 0,
-        currentWager: req.body.player.wager,
-        seat: req.body.s,
+    // CHECK TO SEE IF PLAYER IS LOGGED IN OR GUEST
+    if (req.body.id === "GUEST"){
+        console.log('new game with guest account');
+        player = {
+            id: "GUEST",
+            name: "Guest",
+
+            cards: [],
+            value: 0,
+            currentWager: req.body.player.wager,
+            // SEAT NUMBER WILL BE USED FOR MULTIPLAYER
+            seat: 1
+        }
+    } else {
+        // FIND USER IN DB AND DEDUCT CREDITS FOR THEIR BET
+        let user = await User.findOne({_id: req.body.id});
+        user.credits -= req.body.player.wager;
+        await user.save();
+        
+        player = {
+            id: user._id,
+            name: user.display_name,
+
+            cards: [],
+            value: 0,
+            currentWager: req.body.player.wager,
+            // SEAT NUMBER WILL BE USED FOR MULTIPLAYER
+            seat: 1
+        }
+        
+    
+     
     }
+ 
 
     dealer = {
         hasBlackjack: false,
@@ -65,12 +99,9 @@ router.post('/newHand', (req, res, next) =>{
         seat: 5,
     }
 
-    console.log('cards left: ', deck.length);
-
+    // SHUFFLE NEW DECK OF CARDS IF LESS THAN 30 IN DECK
     if (deck.length < 30){
-        shuffleCards();
-        
-     
+        shuffleCards();     
     } 
 
     player.cards.push(deck.pop());
@@ -78,16 +109,19 @@ router.post('/newHand', (req, res, next) =>{
     player.cards.push(deck.pop());
     dealer.cards.push(deck.pop());
 
+    // CALCULATE PLAYER SCORE
     player.value = calculateScore(player.cards);
 
+    // CHECK PLAYER OPTIONS - DOUBLE DOWN, SPLIT, ETC
     checkPlayerOptions();
 
+    gamePhase = PLAYER_TURN;
 
     res.status(200).send({
         player,
         dealer: {
-            cards: dealer.cards,
-            value: dealer.value
+            cards: dealer.cards[1],
+            shown: lookupCardValue(dealer.cards[1]),
         }
     })
     
@@ -96,12 +130,71 @@ router.post('/newHand', (req, res, next) =>{
 
 router.post('/hitme', (req, res, next) => {
     console.log( req.body)
-    player.cards.push(cards.pop());
+    player.cards.push(deck.pop());
     player.value = calculateScore(player.cards);
 
     res.status(200).send({player})
 });
 
+router.post('/dealer-turn', async (req, res, next) => {
+    console.log(gamePhase);
+    if (gamePhase === NO_GAME){
+        res.status(500).send("no game in progress")
+    } else if (gamePhase === PLAYER_TURN){
+        
+        gamePhase = DEALER_TURN
+         // DEALER DEALS THEMSELVES CARDS
+
+         dealer.revealedCard = lookupCardValue(dealer.cards[0]);
+         dealer.value = calculateScore(dealer.cards);
+         dealer.initialScore = dealer.value;
+
+         while(dealer.value < 17){
+            console.log('dealer takes a card - ', dealer.value);
+            
+            dealer.cards.push(deck.pop());
+            dealer.value = calculateScore(dealer.cards);
+            
+         }         
+
+         // DEALER IS DONE TAKING CARDS, CALCULATE WINNER / PAYOUT
+         console.log("WAGER: " + player.wager)
+         if ((dealer.value < player.value && player.value <= 21) ||
+         (dealer.value > 21 && player.value <= 21 )){
+            // PLAYER WINS
+            let user = await User.findOne({_id: player.id});
+            
+            // PAYOUT
+            user.credits += (2*player.currentWager);
+            await user.save();
+
+            // RESET PLAYER WAGER
+            player.wager = 0;
+
+            // SEND RESPONSE
+            res.send({
+                player,
+                dealer,
+                gamePhase: PAYOUT,
+                winner: "PLAYER"
+            })
+         } else {
+            // RESET PLAYER WAGER
+            player.wager = 0;
+
+            res.send({
+                player,
+                dealer,                
+                gamePhase: PAYOUT,
+                winner: "DEALER"
+            })
+         }
+
+    } else {
+        res.send('not dealer turn');
+    }
+
+});
 
 // router.get('/score', (req, res, next) => {
 
@@ -201,7 +294,7 @@ const calculateScore = (cards) => {
 
 
 const checkPlayerOptions = () => {
-    console.log('checking...');
+    // console.log('checking...');
     if (player.cards.length === 2){
         if (player.value === 21){
             player.hasBlackjack = true;
@@ -220,17 +313,35 @@ const checkPlayerOptions = () => {
 }
 
 
+
+// LOOKUP CARD VALUE
+const lookupCardValue = (card) => {
+    switch (card.split('')[0]){
+
+        case "0":
+            return "10";
+        case "J":
+            return "Jack";
+        case "Q":
+            return "Queen";
+        case "K":
+            return "King";
+        case "A":
+            return "Ace";
+        default: 
+            return card.split('')[0]; 
+    }
+}
+
 // SHUFFLE CARDS
 
 const shuffleCards = () => {
     
     // "OPEN" NEW "PACKS" OF CARDS AND ADD THEM TO GAME DECK
     for (let i = 0; i < deckCount; i++){
-        console.log('adding pack...');
         unshuffledDeck = unshuffledDeck.concat(NEW_UNSHUFFLED_PACK); 
     }
 
-    console.log(unshuffledDeck);
 
     // SHUFFLE GAME DECK
     while (unshuffledDeck.length > 0){
@@ -238,7 +349,6 @@ const shuffleCards = () => {
         deck.push(unshuffledDeck.splice(randomIndex, 1)[0])
     }
 
-    console.log('shuffled deck: ', deck);
     
     return deck;
 }
