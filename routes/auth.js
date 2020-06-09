@@ -61,6 +61,7 @@ router.post(
                             if (login){
                                 let payload = { 
                                     user_id: user._id,
+                                    username: user.display_name,
                                     credits: user.credits
                                 };
                                 let token = jwt.sign(payload, process.env.JWT_SECRET);
