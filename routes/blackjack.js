@@ -56,16 +56,20 @@ const NEW_UNSHUFFLED_PACK = [
 
 
 router.post('/newHand', async (req, res, next) =>{
-    console.log(req.body);
+    console.log('new hand: request - ', req.body);
     // CHECK TO SEE IF PLAYER IS LOGGED IN OR GUEST
     if (req.body.id === "GUEST"){
         console.log('new game with guest account');
         player = {
+            ...player,
             id: "GUEST",
             name: "Guest",
 
             cards: [],
             value: 0,
+            hasBlackjack: false,
+            canSplit: false,
+            canDoubleDown: false,
             currentWager: req.body.player.wager,
             // SEAT NUMBER WILL BE USED FOR MULTIPLAYER
             seat: 1
@@ -79,7 +83,9 @@ router.post('/newHand', async (req, res, next) =>{
         player = {
             id: user._id,
             name: user.display_name,
-
+            hasBlackjack: false,
+            canSplit: false,
+            canDoubleDown: false,
             cards: [],
             value: 0,
             currentWager: req.body.player.wager,
@@ -111,9 +117,11 @@ router.post('/newHand', async (req, res, next) =>{
 
     // CALCULATE PLAYER SCORE
     player.value = calculateScore(player.cards);
-
+    console.log('p1 - ', player);
     // CHECK PLAYER OPTIONS - DOUBLE DOWN, SPLIT, ETC
     checkPlayerOptions();
+
+    console.log('p2- ', player)
 
     gamePhase = PLAYER_TURN;
 
@@ -137,7 +145,6 @@ router.post('/hitme', (req, res, next) => {
 });
 
 router.post('/dealer-turn', async (req, res, next) => {
-    console.log(gamePhase);
     if (gamePhase === NO_GAME){
         res.status(500).send("no game in progress")
     } else if (gamePhase === PLAYER_TURN){
@@ -147,6 +154,10 @@ router.post('/dealer-turn', async (req, res, next) => {
 
          dealer.revealedCard = lookupCardValue(dealer.cards[0]);
          dealer.value = calculateScore(dealer.cards);
+
+         if (dealer.value === 21 && dealer.cards.length === 2){
+             dealer.hasBlackjack = true;
+         }
          dealer.initialScore = dealer.value;
 
          while(dealer.value < 17){
@@ -157,10 +168,15 @@ router.post('/dealer-turn', async (req, res, next) => {
             
          }         
 
+         console.log('dealer done taking cards - player: ', player);
+
+
+
          // DEALER IS DONE TAKING CARDS, CALCULATE WINNER / PAYOUT
-         console.log("WAGER: " + player.wager)
          if ((dealer.value < player.value && player.value <= 21) ||
-         (dealer.value > 21 && player.value <= 21 )){
+         (dealer.value > 21 && player.value <= 21 ) ||
+         (player.hasBlackjack && !dealer.hasBlackjack)){
+
             // PLAYER WINS
             let user = await User.findOne({_id: player.id});
             
@@ -170,19 +186,36 @@ router.post('/dealer-turn', async (req, res, next) => {
 
             // RESET PLAYER WAGER
             player.wager = 0;
-
-            // SEND RESPONSE
-            res.send({
+            res.status(200).send({
                 player,
                 dealer,
                 gamePhase: PAYOUT,
                 winner: "PLAYER"
             })
+         } else if (player.value === dealer.value && player.hasBlackjack === dealer.hasBlackjack) {
+             // PUSH
+            console.log("push")
+            // PLAYER WINS
+            let user = await User.findOne({_id: player.id});
+                        
+            // PAYOUT
+            user.credits += player.currentWager;
+            await user.save();
+
+            player.wager = 0;
+            res.status(200).send({
+                player,
+                dealer,
+                gamePhase: PAYOUT,
+                winner: "PUSH"
+            });
          } else {
+
             // RESET PLAYER WAGER
             player.wager = 0;
+            console.log('sending response...')
 
-            res.send({
+            res.status(200).send({
                 player,
                 dealer,                
                 gamePhase: PAYOUT,
@@ -191,7 +224,7 @@ router.post('/dealer-turn', async (req, res, next) => {
          }
 
     } else {
-        res.send('not dealer turn');
+        res.status(500).send('not dealer turn');
     }
 
 });
@@ -270,21 +303,26 @@ const calculateScore = (cards) => {
         }
 
 
-        // SET DOUBLE DOWN / SPLITABLE / BLACKJACK
+        // // SET DOUBLE DOWN / SPLITABLE / BLACKJACK
         // if(cards.length === 2){
         //      // ONLY TWO CARDS && SCORE OF 21 === BLACKJACK
         //     if (score === 21){
-        //         p.hasBlackjack = true;
+        //         isPlayer ? player.hasBlackjack = true : dealer.hasBlackjack = true;
         //     }
 
-        //     //  SAME VALUE === SPLITABLE
-        //     if (p.cards[0].split('')[0] === p.cards[1].split('')[0]){
-        //         p.canSplit = true;
+        //     if (isPlayer){
+
+        //         //  SAME VALUE === SPLITABLE
+        //         if (player.cards[0].split('')[0] === player.cards[1].split('')[0]){
+        //             player.canSplit = true;
+        //         }
+
+        //         // CAN DOUBLE DOWN ON 9 10 OR 11
+        //         if (score === 9 || score === 10 || score === 11){
+        //             player.canDoubleDown = true;
+        //         } 
         //     }
 
-        //     if (score === 9 || score === 10 || score === 11){
-        //         p.canDoubleDown = true;
-        //     } 
 
         // }
 
