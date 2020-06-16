@@ -55,7 +55,7 @@ const NEW_UNSHUFFLED_PACK = [
 
 
 
-router.post('/newHand', async (req, res, next) =>{
+router.post('/new-hand', async (req, res, next) =>{
     console.log('new hand: request - ', req.body);
     // CHECK TO SEE IF PLAYER IS LOGGED IN OR GUEST
     if (req.body.id === "GUEST"){
@@ -136,11 +136,13 @@ router.post('/newHand', async (req, res, next) =>{
         
 })
 
-router.post('/hitme', (req, res, next) => {
+router.post('/hit-me', (req, res, next) => {
     console.log( req.body)
     player.cards.push(deck.pop());
     player.value = calculateScore(player.cards);
-
+    player.canDoubleDown = false;
+    player.canSplit = false;
+    player.hasBlackjack = false;
     res.status(200).send({player})
 });
 
