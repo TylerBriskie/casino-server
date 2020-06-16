@@ -137,13 +137,47 @@ router.post('/new-hand', async (req, res, next) =>{
 })
 
 router.post('/hit-me', (req, res, next) => {
-    console.log( req.body)
+    // DEAL CARD
     player.cards.push(deck.pop());
     player.value = calculateScore(player.cards);
+
+    // UNSET PLAYER OPTIONS
     player.canDoubleDown = false;
     player.canSplit = false;
     player.hasBlackjack = false;
+
+    // SEND RESPONSE
     res.status(200).send({player})
+});
+
+
+router.post('/double-down', async (req, res, next) => {
+
+    // FIND USER IN DB AND DEDUCT CREDITS FOR THEIR BET
+    let user = await User.findOne({_id: req.body.id});
+
+    if (user){
+        user.credits -= player.currentWager;
+        await user.save();
+    
+        // UPDATE WAGER VALUE
+        player.currentWager = player.currentWager*2;
+    
+        // DEAL PLAYERS CARD
+        player.cards.push(deck.pop());
+        player.value = calculateScore(player.cards);
+    
+        // UNSET PLAYER OPTIONS
+        player.canDoubleDown = false;
+        player.canSplit = false;
+        player.hasBlackjack = false;
+    
+        // SEND RESPONSE
+        res.status(200).send({player})
+    } else {
+        res.status(500).send('player not found');
+    }
+
 });
 
 router.post('/dealer-turn', async (req, res, next) => {
